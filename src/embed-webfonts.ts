@@ -107,6 +107,7 @@ async function getCSSRules(
 ): Promise<CSSStyleRule[]> {
   const ret: CSSStyleRule[] = []
   const deferreds: Promise<number | void>[] = []
+  const ignoredSheets = new Set<CSSStyleSheet>()
 
   // First loop inlines imports
   styleSheets.forEach((sheet) => {
@@ -143,6 +144,8 @@ async function getCSSRules(
           }
         })
       } catch (e) {
+        ignoredSheets.add(sheet)
+
         const inlineSheet =
           styleSheets.find((a) => a.href == null) || document.styleSheets[0]
 
@@ -159,8 +162,9 @@ async function getCSSRules(
                 console.error('Error loading remote stylesheet', err)
               }),
           )
+        } else {
+          console.error('Error inlining remote css file', e)
         }
-        console.error('Error inlining remote css file', e)
       }
     }
   })
@@ -168,7 +172,7 @@ async function getCSSRules(
   return Promise.all(deferreds).then(() => {
     // Second loop parses rules
     styleSheets.forEach((sheet) => {
-      if ('cssRules' in sheet) {
+      if ('cssRules' in sheet && !ignoredSheets.has(sheet)) {
         try {
           toArray<CSSStyleRule>(sheet.cssRules || []).forEach((item) => {
             ret.push(item)
