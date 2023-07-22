@@ -5,7 +5,7 @@
   "main": "lib/index.js",
   "module": "es/index.js",
   "unpkg": "dist/html-to-image.js",
-  "types": "lib/index.d.ts",
+  "types": "es/index.d.ts",
   "files": [
     "dist",
     "es",
