@@ -65,25 +65,25 @@ export function toArray<T>(arrayLike: any): T[] {
   return arr
 }
 
-function px(node: HTMLElement, styleProperty: string) {
+function px(node: Element, styleProperty: string) {
   const win = node.ownerDocument.defaultView || window
   const val = win.getComputedStyle(node).getPropertyValue(styleProperty)
   return val ? parseFloat(val.replace('px', '')) : 0
 }
 
-function getNodeWidth(node: HTMLElement) {
+function getNodeWidth(node: Element) {
   const leftBorder = px(node, 'border-left-width')
   const rightBorder = px(node, 'border-right-width')
   return node.clientWidth + leftBorder + rightBorder
 }
 
-function getNodeHeight(node: HTMLElement) {
+function getNodeHeight(node: Element) {
   const topBorder = px(node, 'border-top-width')
   const bottomBorder = px(node, 'border-bottom-width')
   return node.clientHeight + topBorder + bottomBorder
 }
 
-export function getImageSize(targetNode: HTMLElement, options: Options = {}) {
+export function getImageSize(targetNode: Element, options: Options = {}) {
   const width = options.width || getNodeWidth(targetNode)
   const height = options.height || getNodeHeight(targetNode)
 

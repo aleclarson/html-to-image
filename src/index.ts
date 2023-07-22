@@ -1,15 +1,16 @@
-import { Options } from './types'
+import { applyStyle } from './apply-style'
 import { cloneNode } from './clone-node'
 import { embedImages } from './embed-images'
-import { applyStyle } from './apply-style'
 import { embedWebFonts, getWebFontCSS } from './embed-webfonts'
+import { Options } from './types'
 import {
+  canvasToBlob,
+  checkCanvasDimensions,
+  createImage,
   getImageSize,
   getPixelRatio,
-  createImage,
-  canvasToBlob,
   nodeToDataURL,
-  checkCanvasDimensions,
+  svgToDataURL,
 } from './util'
 
 export async function toSvg<T extends HTMLElement>(
@@ -25,12 +26,16 @@ export async function toSvg<T extends HTMLElement>(
   return datauri
 }
 
-export async function toCanvas<T extends HTMLElement>(
-  node: T,
+export async function toCanvas(
+  node: HTMLElement | SVGSVGElement,
   options: Options = {},
 ): Promise<HTMLCanvasElement> {
   const { width, height } = getImageSize(node, options)
-  const svg = await toSvg(node, options)
+  const svg =
+    node instanceof SVGSVGElement
+      ? await svgToDataURL(node)
+      : await toSvg(node, options)
+
   const img = await createImage(svg)
 
   const canvas = document.createElement('canvas')
