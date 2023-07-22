@@ -143,15 +143,16 @@ async function getCSSRules(
           }
         })
       } catch (e) {
-        const inline =
+        const inlineSheet =
           styleSheets.find((a) => a.href == null) || document.styleSheets[0]
+
         if (sheet.href != null) {
           deferreds.push(
             fetchCSS(sheet.href)
               .then((metadata) => embedFonts(metadata, options))
               .then((cssText) =>
                 parseCSS(cssText).forEach((rule) => {
-                  inline.insertRule(rule, sheet.cssRules.length)
+                  inlineSheet.insertRule(rule, inlineSheet.cssRules.length)
                 }),
               )
               .catch((err: unknown) => {
