@@ -31,12 +31,31 @@ export async function toCanvas(
   options: Options = {},
 ): Promise<HTMLCanvasElement> {
   const { width, height } = getImageSize(node, options)
-  const svg =
+  const svgDataURL =
     node instanceof SVGSVGElement
       ? await svgToDataURL(node)
       : await toSvg(node, options)
 
-  const img = await createImage(svg)
+  // On Firefox, the limit is 32MB. On Chromium, the limit is 512MB. On WebKit,
+  // the limit is 2048MB. So check the browser type and set the limit accordingly.
+  const lengthLimit =
+    (navigator.userAgent.includes('Firefox')
+      ? 32
+      : navigator.userAgent.includes('Chromium')
+      ? 512
+      : 2048) *
+    1024 *
+    1024
+
+  if (svgDataURL.length > lengthLimit) {
+    throw new Error(
+      `Element exceeds ${
+        lengthLimit / 1024 / 1024
+      }MB limit. Try downscaling any images used.`,
+    )
+  }
+
+  const img = await createImage(svgDataURL)
 
   const canvas = document.createElement('canvas')
   const context = canvas.getContext('2d')!
