@@ -92,20 +92,12 @@ export async function toPixelData<T extends HTMLElement>(
   return ctx.getImageData(0, 0, width, height).data
 }
 
-export async function toPng<T extends HTMLElement>(
+export async function toDataUri<T extends HTMLElement>(
   node: T,
-  options: Options = {},
+  options: Options & { type: string },
 ): Promise<string> {
   const canvas = await toCanvas(node, options)
-  return canvas.toDataURL()
-}
-
-export async function toJpeg<T extends HTMLElement>(
-  node: T,
-  options: Options = {},
-): Promise<string> {
-  const canvas = await toCanvas(node, options)
-  return canvas.toDataURL('image/jpeg', options.quality || 1)
+  return canvas.toDataURL(options.type, options.quality || 1)
 }
 
 export async function toBlob<T extends HTMLElement>(
