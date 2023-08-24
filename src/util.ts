@@ -240,3 +240,22 @@ export const isInstanceOfElement = <
     isInstanceOfElement(nodePrototype, instance)
   )
 }
+
+export function isLastOccurrence(value: any, i: number, array: any[]) {
+  return array.indexOf(value, i + 1) === -1
+}
+
+export function dedupeArray<T>(array: T[]): T[] {
+  return array.filter(isLastOccurrence)
+}
+
+export function concatenateTextContent(element: HTMLElement): string {
+  let textContent = ''
+  for (let i = 0; i < element.childNodes.length; i++) {
+    const childNode = element.childNodes[i]
+    if (childNode.nodeType === Node.TEXT_NODE) {
+      textContent += childNode.textContent
+    }
+  }
+  return textContent
+}

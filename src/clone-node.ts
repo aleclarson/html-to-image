@@ -1,8 +1,21 @@
-import type { Options } from './types'
-import { clonePseudoElements } from './clone-pseudos'
-import { createImage, toArray, isInstanceOfElement } from './util'
-import { getMimeType } from './mimes'
 import { resourceToDataURL } from './dataurl'
+import { getMimeType } from './mimes'
+import type { Options } from './types'
+import { createUnicodeRangeRegex } from './unicode'
+import {
+  concatenateTextContent,
+  createImage,
+  dedupeArray,
+  isInstanceOfElement,
+  toArray,
+} from './util'
+
+type FontFace = {
+  weight: string
+  unicodeRange: RegExp
+  style: string
+  used: boolean
+}
 
 async function cloneCanvasElement(canvas: HTMLCanvasElement) {
   const dataURL = canvas.toDataURL()
@@ -35,6 +48,7 @@ async function cloneIFrameElement(iframe: HTMLIFrameElement) {
       return (await cloneNode(
         iframe.contentDocument.body,
         {},
+        null,
         true,
       )) as HTMLBodyElement
     }
@@ -71,6 +85,7 @@ async function cloneChildren<T extends HTMLElement>(
   nativeNode: T,
   clonedNode: T,
   options: Options,
+  context: CloneNodeContext,
 ): Promise<T> {
   let children: T[] = []
 
@@ -95,7 +110,7 @@ async function cloneChildren<T extends HTMLElement>(
   await children.reduce(
     (deferred, child) =>
       deferred
-        .then(() => cloneNode(child, options))
+        .then(() => cloneNode(child, options, context))
         .then((clonedChild: HTMLElement | null) => {
           if (clonedChild) {
             clonedNode.appendChild(clonedChild)
@@ -107,44 +122,98 @@ async function cloneChildren<T extends HTMLElement>(
   return clonedNode
 }
 
-function cloneCSSStyle<T extends HTMLElement>(nativeNode: T, clonedNode: T) {
+function cloneCSSStyle<T extends HTMLElement>(
+  nativeNode: T,
+  clonedNode: T,
+  context: CloneNodeContext,
+) {
   const targetStyle = clonedNode.style
   if (!targetStyle) {
     return
   }
 
   const sourceStyle = window.getComputedStyle(nativeNode)
-  if (sourceStyle.cssText) {
-    targetStyle.cssText = sourceStyle.cssText
-    targetStyle.transformOrigin = sourceStyle.transformOrigin
-  } else {
-    toArray<string>(sourceStyle).forEach((name) => {
-      let value = sourceStyle.getPropertyValue(name)
-      if (name === 'font-size' && value.endsWith('px')) {
-        const reducedFont =
-          Math.floor(parseFloat(value.substring(0, value.length - 2))) - 0.1
-        value = `${reducedFont}px`
-      }
 
-      if (
-        isInstanceOfElement(nativeNode, HTMLIFrameElement) &&
-        name === 'display' &&
-        value === 'inline'
-      ) {
-        value = 'block'
-      }
-      
-      if (name === 'd' && clonedNode.getAttribute('d')) {
-        value = `path(${clonedNode.getAttribute('d')})`
-      }
-      
-      targetStyle.setProperty(
-        name,
-        value,
-        sourceStyle.getPropertyPriority(name),
+  const textContent = concatenateTextContent(nativeNode)
+  if (textContent !== '') {
+    const fontFaces = context.fonts.get(sourceStyle.fontFamily)
+    if (fontFaces) {
+      const eligibleFaces = fontFaces.filter(
+        (face) =>
+          sourceStyle.fontWeight === face.weight &&
+          sourceStyle.fontStyle === face.style,
       )
-    })
+      for (const char of dedupeArray(textContent.split(''))) {
+        const match = eligibleFaces.find((face) => {
+          if (face.unicodeRange.test(char)) {
+            return (face.used = true)
+          }
+        })
+        if (!match) {
+          console.warn(
+            'Failed to find font face for %s %s %s',
+            sourceStyle.fontFamily,
+            sourceStyle.fontWeight,
+            sourceStyle.fontStyle,
+          )
+        }
+      }
+    } else {
+      console.warn('Unknown font: %s', sourceStyle.fontFamily)
+    }
   }
+
+  if (nativeNode === context.rootNode) {
+    const defaultStyle = getDefaultStyle(nativeNode)
+    if (sourceStyle.cssText) {
+      targetStyle.cssText = sourceStyle.cssText
+      targetStyle.transformOrigin = sourceStyle.transformOrigin
+    } else {
+      toArray<string>(sourceStyle).forEach((name) => {
+        let value = sourceStyle.getPropertyValue(name)
+        if (value === defaultStyle[name]) {
+          return
+        }
+        if (name === 'font-size' && value.endsWith('px')) {
+          const reducedFont =
+            Math.floor(parseFloat(value.substring(0, value.length - 2))) - 0.1
+          value = `${reducedFont}px`
+        }
+        if (
+          isInstanceOfElement(nativeNode, HTMLIFrameElement) &&
+          name === 'display' &&
+          value === 'inline'
+        ) {
+          value = 'block'
+        }
+        if (name === 'd' && clonedNode.getAttribute('d')) {
+          value = `path(${clonedNode.getAttribute('d')})`
+        }
+        targetStyle.setProperty(
+          name,
+          value,
+          sourceStyle.getPropertyPriority(name),
+        )
+      })
+    }
+  }
+}
+
+function getDefaultStyle(node: HTMLElement) {
+  const document = node.ownerDocument
+
+  const tmp = document.createElement('div')
+  tmp.style.all = 'revert'
+
+  node.parentElement!.appendChild(tmp)
+
+  const style: any = getComputedStyle(tmp)
+  const defaultStyle = Object.fromEntries(
+    Object.values<string>(style).map((k) => [k, style[k]]),
+  )
+
+  tmp.remove()
+  return defaultStyle
 }
 
 function cloneInputValue<T extends HTMLElement>(nativeNode: T, clonedNode: T) {
@@ -170,10 +239,14 @@ function cloneSelectValue<T extends HTMLElement>(nativeNode: T, clonedNode: T) {
   }
 }
 
-function decorate<T extends HTMLElement>(nativeNode: T, clonedNode: T): T {
+function decorate<T extends HTMLElement>(
+  nativeNode: T,
+  clonedNode: T,
+  context: CloneNodeContext,
+): T {
   if (isInstanceOfElement(clonedNode, Element)) {
-    cloneCSSStyle(nativeNode, clonedNode)
-    clonePseudoElements(nativeNode, clonedNode)
+    cloneCSSStyle(nativeNode, clonedNode, context)
+    // clonePseudoElements(nativeNode, clonedNode)
     cloneInputValue(nativeNode, clonedNode)
     cloneSelectValue(nativeNode, clonedNode)
   }
@@ -184,6 +257,7 @@ function decorate<T extends HTMLElement>(nativeNode: T, clonedNode: T): T {
 async function ensureSVGSymbols<T extends HTMLElement>(
   clone: T,
   options: Options,
+  context: CloneNodeContext,
 ) {
   const uses = clone.querySelectorAll ? clone.querySelectorAll('use') : []
   if (uses.length === 0) {
@@ -199,7 +273,12 @@ async function ensureSVGSymbols<T extends HTMLElement>(
       const definition = document.querySelector(id) as HTMLElement
       if (!exist && definition && !processedDefs[id]) {
         // eslint-disable-next-line no-await-in-loop
-        processedDefs[id] = (await cloneNode(definition, options, true))!
+        processedDefs[id] = (await cloneNode(
+          definition,
+          options,
+          context,
+          true,
+        ))!
       }
     }
   }
@@ -231,15 +310,84 @@ async function ensureSVGSymbols<T extends HTMLElement>(
 export async function cloneNode<T extends HTMLElement>(
   node: T,
   options: Options,
+  context: CloneNodeContext,
   isRoot?: boolean,
 ): Promise<T | null> {
   if (!isRoot && options.filter && !options.filter(node)) {
     return null
   }
 
-  return Promise.resolve(node)
+  const clonedNode = await Promise.resolve(node)
     .then((clonedNode) => cloneSingleNode(clonedNode, options) as Promise<T>)
-    .then((clonedNode) => cloneChildren(node, clonedNode, options))
-    .then((clonedNode) => decorate(node, clonedNode))
-    .then((clonedNode) => ensureSVGSymbols(clonedNode, options))
+    .then((clonedNode) => cloneChildren(node, clonedNode, options, context))
+    .then((clonedNode) => decorate(node, clonedNode, context))
+    .then((clonedNode) => ensureSVGSymbols(clonedNode, options, context))
+
+  if (isRoot) {
+    // applyMatchingCSSRules(clonedNode)
+    const rules = getMatchingCSSRules(node)
+    const styles = createStyleElementFromRules(rules)
+    clonedNode.prepend(styles)
+  }
+
+  return clonedNode
+}
+
+export type CloneNodeContext = {
+  rootNode: HTMLElement
+  fonts: Map<string, FontFace[]>
+}
+
+export function createCloneNodeContext(rootNode: HTMLElement) {
+  return {
+    rootNode,
+    fonts: collectFonts(rootNode.ownerDocument),
+  }
+}
+
+function collectFonts(document: Document) {
+  const fonts = new Map<string, FontFace[]>()
+  document.fonts.forEach((font) => {
+    const fontFamily = font.family.replace(/"/g, '')
+    let faces = fonts.get(fontFamily)
+    faces || fonts.set(fontFamily, (faces = []))
+    faces.push({
+      weight: font.weight,
+      unicodeRange: createUnicodeRangeRegex(font.unicodeRange),
+      style: font.style,
+      used: false,
+    })
+  })
+  return fonts
+}
+
+function getMatchingCSSRules(root: HTMLElement): CSSStyleRule[] {
+  const matchingRules: CSSStyleRule[] = []
+  const sheets = root.ownerDocument.styleSheets
+  for (let i = 0; i < sheets.length; i++) {
+    const sheet = sheets[i]
+    try {
+      const rules = sheet.cssRules || sheet.rules
+      for (let j = 0; j < rules.length; j++) {
+        const rule = rules[j] as CSSStyleRule
+        if (root.querySelector(rule.selectorText)) {
+          matchingRules.push(rule)
+        }
+      }
+    } catch (e) {
+      console.warn(`Could not read CSS rules from ${sheet.href}: ${e}`)
+    }
+  }
+  return matchingRules
+}
+
+function createStyleElementFromRules(rules: CSSStyleRule[]): HTMLStyleElement {
+  const styleElement = document.createElement('style')
+  let cssText = ''
+  for (let i = 0; i < rules.length; i++) {
+    const rule = rules[i]
+    cssText += rule.cssText
+  }
+  styleElement.textContent = cssText
+  return styleElement
 }

@@ -1,7 +1,8 @@
+import { CloneNodeContext } from './clone-node'
+import { fetchAsDataURL } from './dataurl'
+import { embedResources, shouldEmbed } from './embed-resources'
 import type { Options } from './types'
 import { toArray } from './util'
-import { fetchAsDataURL } from './dataurl'
-import { shouldEmbed, embedResources } from './embed-resources'
 
 interface Metadata {
   url: string
@@ -187,15 +188,24 @@ async function getCSSRules(
   })
 }
 
-function getWebFontRules(cssRules: CSSStyleRule[]): CSSStyleRule[] {
-  return cssRules
-    .filter((rule) => rule.type === CSSRule.FONT_FACE_RULE)
-    .filter((rule) => shouldEmbed(rule.style.getPropertyValue('src')))
+function getWebFontRules(
+  cssRules: CSSStyleRule[],
+  context: CloneNodeContext,
+): CSSStyleRule[] {
+  return cssRules.filter(
+    (rule) =>
+      rule.type === CSSRule.FONT_FACE_RULE &&
+      context.fonts
+        .get(rule.style.getPropertyValue('font-family'))
+        ?.some((face) => face.used) &&
+      shouldEmbed(rule.style.getPropertyValue('src')),
+  )
 }
 
 async function parseWebFontRules<T extends HTMLElement>(
   node: T,
   options: Options,
+  context: CloneNodeContext,
 ) {
   if (node.ownerDocument == null) {
     throw new Error('Provided element is not within a Document')
@@ -204,14 +214,15 @@ async function parseWebFontRules<T extends HTMLElement>(
   const styleSheets = toArray<CSSStyleSheet>(node.ownerDocument.styleSheets)
   const cssRules = await getCSSRules(styleSheets, options)
 
-  return getWebFontRules(cssRules)
+  return getWebFontRules(cssRules, context)
 }
 
 export async function getWebFontCSS<T extends HTMLElement>(
   node: T,
   options: Options,
+  context: CloneNodeContext = { fonts: new Map() },
 ): Promise<string> {
-  const rules = await parseWebFontRules(node, options)
+  const rules = await parseWebFontRules(node, options, context)
   const cssTexts = await Promise.all(
     rules.map((rule) => {
       const baseUrl = rule.parentStyleSheet ? rule.parentStyleSheet.href : null
@@ -225,19 +236,20 @@ export async function getWebFontCSS<T extends HTMLElement>(
 export async function embedWebFonts<T extends HTMLElement>(
   clonedNode: T,
   options: Options,
+  context: CloneNodeContext,
 ) {
   const cssText =
     options.fontEmbedCSS != null
       ? options.fontEmbedCSS
       : options.skipFonts
       ? null
-      : await getWebFontCSS(clonedNode, options)
+      : await getWebFontCSS(clonedNode, options, context)
 
   if (cssText) {
     const styleNode = document.createElement('style')
-    const sytleContent = document.createTextNode(cssText)
+    const styleContent = document.createTextNode(cssText)
 
-    styleNode.appendChild(sytleContent)
+    styleNode.appendChild(styleContent)
 
     if (clonedNode.firstChild) {
       clonedNode.insertBefore(styleNode, clonedNode.firstChild)

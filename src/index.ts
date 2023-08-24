@@ -1,5 +1,5 @@
 import { applyStyle } from './apply-style'
-import { cloneNode } from './clone-node'
+import { cloneNode, createCloneNodeContext } from './clone-node'
 import { embedImages } from './embed-images'
 import { embedWebFonts, getWebFontCSS } from './embed-webfonts'
 import { Options } from './types'
@@ -18,12 +18,22 @@ export async function toSvg<T extends HTMLElement>(
   options: Options = {},
 ): Promise<string> {
   const { width, height } = getImageSize(node, options)
-  const clonedNode = (await cloneNode(node, options, true)) as HTMLElement
-  await embedWebFonts(clonedNode, options)
+
+  const context = createCloneNodeContext(node)
+  const clonedNode = (await cloneNode(
+    node,
+    options,
+    context,
+    true,
+  )) as HTMLElement
+
+  clonedNode.style.fontSize = getComputedStyle(node).fontSize
+
+  await embedWebFonts(clonedNode, options, context)
   await embedImages(clonedNode, options)
+
   applyStyle(clonedNode, options)
-  const datauri = await nodeToDataURL(clonedNode, width, height)
-  return datauri
+  return nodeToDataURL(clonedNode, width, height)
 }
 
 export async function toCanvas(

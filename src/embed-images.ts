@@ -1,8 +1,8 @@
-import { Options } from './types'
-import { embedResources } from './embed-resources'
-import { toArray, isInstanceOfElement } from './util'
 import { isDataUrl, resourceToDataURL } from './dataurl'
+import { embedResources } from './embed-resources'
 import { getMimeType } from './mimes'
+import { Options } from './types'
+import { isInstanceOfElement, toArray } from './util'
 
 async function embedProp(
   propName: string,
